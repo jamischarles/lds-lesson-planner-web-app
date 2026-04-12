@@ -17,6 +17,9 @@ pnpm-debug.log*
 .env
 .env.production
 
+# lesson data (local only)
+lessons/
+
 # macOS-specific files
 .DS_Store
 
