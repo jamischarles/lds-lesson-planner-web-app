@@ -1,18 +1,7 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import matter from 'gray-matter';
 import { STAGES, type Stage, type StageStatus, type LessonFrontmatter, type LessonSummary, type StageFile, getNextStage } from './types';
 import { STAGE_SCAFFOLDS } from './scaffolds';
-
-const LESSONS_DIR = process.env.VERCEL
-  ? path.join('/tmp', 'lessons')
-  : path.join(process.cwd(), 'lessons');
-
-function ensureLessonsDir() {
-  if (!fs.existsSync(LESSONS_DIR)) {
-    fs.mkdirSync(LESSONS_DIR, { recursive: true });
-  }
-}
+import { listDir, readFile, writeFile, lessonPath, lessonDirPath } from './github';
 
 export function slugify(topic: string, date: string): string {
   const topicSlug = topic
@@ -23,16 +12,15 @@ export function slugify(topic: string, date: string): string {
   return `${date}-${topicSlug}`;
 }
 
-export function getLessons(): LessonSummary[] {
-  ensureLessonsDir();
-  const dirs = fs.readdirSync(LESSONS_DIR, { withFileTypes: true })
-    .filter(d => d.isDirectory())
-    .map(d => d.name);
+export async function getLessons(): Promise<LessonSummary[]> {
+  // List all directories under lessons/
+  const items = await listDir('lessons');
+  const dirs = items.filter(i => i.type === 'dir');
 
   const lessons: LessonSummary[] = [];
 
-  for (const slug of dirs) {
-    const lessonDir = path.join(LESSONS_DIR, slug);
+  for (const dir of dirs) {
+    const slug = dir.name;
     const stages: Record<Stage, StageStatus | null> = {
       broad: null, shape: null, outline: null, draft: null, final: null,
     };
@@ -42,16 +30,21 @@ export function getLessons(): LessonSummary[] {
     let audience = '';
     let currentStage: Stage = 'broad';
 
+    // List files in this lesson dir
+    const files = await listDir(lessonDirPath(slug));
+    const fileNames = new Set(files.map(f => f.name));
+
     for (const stage of STAGES) {
-      const filePath = path.join(lessonDir, `${stage}.md`);
-      if (fs.existsSync(filePath)) {
-        const raw = fs.readFileSync(filePath, 'utf-8');
-        const { data } = matter(raw);
-        stages[stage] = (data.status as StageStatus) || 'wip';
-        topic = data.topic || topic;
-        date = data.date || date;
-        audience = data.audience || audience;
-        currentStage = stage;
+      if (fileNames.has(`${stage}.md`)) {
+        const result = await readFile(lessonPath(slug, stage));
+        if (result) {
+          const { data } = matter(result.content);
+          stages[stage] = (data.status as StageStatus) || 'wip';
+          topic = data.topic || topic;
+          date = data.date || date;
+          audience = data.audience || audience;
+          currentStage = stage;
+        }
       }
     }
 
@@ -64,31 +57,25 @@ export function getLessons(): LessonSummary[] {
   return lessons;
 }
 
-export function getStageContent(slug: string, stage: Stage): StageFile | null {
-  const filePath = path.join(LESSONS_DIR, slug, `${stage}.md`);
-  if (!fs.existsSync(filePath)) return null;
+export async function getStageContent(slug: string, stage: Stage): Promise<StageFile | null> {
+  const result = await readFile(lessonPath(slug, stage));
+  if (!result) return null;
 
-  const raw = fs.readFileSync(filePath, 'utf-8');
-  const { data, content } = matter(raw);
+  const { data, content } = matter(result.content);
   return {
     frontmatter: data as LessonFrontmatter,
     body: content,
   };
 }
 
-export function writeStageContent(slug: string, stage: Stage, frontmatter: Partial<LessonFrontmatter>, body: string): void {
-  const lessonDir = path.join(LESSONS_DIR, slug);
-  if (!fs.existsSync(lessonDir)) {
-    fs.mkdirSync(lessonDir, { recursive: true });
-  }
+export async function writeStageContent(slug: string, stage: Stage, frontmatter: Partial<LessonFrontmatter>, body: string): Promise<void> {
+  const filePath = lessonPath(slug, stage);
 
-  const filePath = path.join(lessonDir, `${stage}.md`);
-
-  // Merge with existing frontmatter if file exists
+  // Read existing frontmatter if file exists
   let existing: Partial<LessonFrontmatter> = {};
-  if (fs.existsSync(filePath)) {
-    const raw = fs.readFileSync(filePath, 'utf-8');
-    const { data } = matter(raw);
+  const result = await readFile(filePath);
+  if (result) {
+    const { data } = matter(result.content);
     existing = data as Partial<LessonFrontmatter>;
   }
 
@@ -103,20 +90,16 @@ export function writeStageContent(slug: string, stage: Stage, frontmatter: Parti
   };
 
   const content = matter.stringify(body, merged);
-  fs.writeFileSync(filePath, content, 'utf-8');
+  await writeFile(filePath, content, `Update ${slug}/${stage}.md`);
 }
 
-export function createLesson(topic: string, date: string, audience: string): string {
-  ensureLessonsDir();
+export async function createLesson(topic: string, date: string, audience: string): Promise<string> {
   const slug = slugify(topic, date);
-  const lessonDir = path.join(LESSONS_DIR, slug);
+  const filePath = lessonPath(slug, 'broad');
 
-  if (fs.existsSync(lessonDir)) {
-    // If it already exists, just return the slug
-    return slug;
-  }
-
-  fs.mkdirSync(lessonDir, { recursive: true });
+  // Check if it already exists
+  const existing = await readFile(filePath);
+  if (existing) return slug;
 
   const frontmatter: LessonFrontmatter = {
     stage: 'broad',
@@ -129,29 +112,31 @@ export function createLesson(topic: string, date: string, audience: string): str
   };
 
   const content = matter.stringify(STAGE_SCAFFOLDS.broad, frontmatter);
-  fs.writeFileSync(path.join(lessonDir, 'broad.md'), content, 'utf-8');
+  await writeFile(filePath, content, `Create lesson: ${topic}`);
 
   return slug;
 }
 
-export function completeStage(slug: string, stage: Stage): Stage | null {
-  const filePath = path.join(LESSONS_DIR, slug, `${stage}.md`);
-  if (!fs.existsSync(filePath)) {
-    throw new Error(`Stage file not found: ${stage}`);
-  }
+export async function completeStage(slug: string, stage: Stage): Promise<Stage | null> {
+  const filePath = lessonPath(slug, stage);
 
-  // Mark current stage as complete
-  const raw = fs.readFileSync(filePath, 'utf-8');
-  const { data, content } = matter(raw);
+  // Read current stage
+  const result = await readFile(filePath);
+  if (!result) throw new Error(`Stage file not found: ${stage}`);
+
+  const { data, content } = matter(result.content);
   data.status = 'complete';
   data.updated_at = new Date().toISOString();
-  fs.writeFileSync(filePath, matter.stringify(content, data), 'utf-8');
+
+  // Write completed stage
+  await writeFile(filePath, matter.stringify(content, data), `Complete ${slug}/${stage}`);
 
   // Create next stage scaffold
   const next = getNextStage(stage);
   if (next) {
-    const nextPath = path.join(LESSONS_DIR, slug, `${next}.md`);
-    if (!fs.existsSync(nextPath)) {
+    const nextPath = lessonPath(slug, next);
+    const nextExists = await readFile(nextPath);
+    if (!nextExists) {
       const frontmatter: LessonFrontmatter = {
         stage: next,
         topic: data.topic,
@@ -161,17 +146,18 @@ export function completeStage(slug: string, stage: Stage): Stage | null {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      fs.writeFileSync(nextPath, matter.stringify(STAGE_SCAFFOLDS[next], frontmatter), 'utf-8');
+      await writeFile(nextPath, matter.stringify(STAGE_SCAFFOLDS[next], frontmatter), `Scaffold ${slug}/${next}`);
     }
   }
 
   return next;
 }
 
-export function getLessonMeta(slug: string): { topic: string; date: string; audience: string; stages: Record<Stage, StageStatus | null>; currentStage: Stage } | null {
-  const lessonDir = path.join(LESSONS_DIR, slug);
-  if (!fs.existsSync(lessonDir)) return null;
+export async function getLessonMeta(slug: string): Promise<{ topic: string; date: string; audience: string; stages: Record<Stage, StageStatus | null>; currentStage: Stage } | null> {
+  const files = await listDir(lessonDirPath(slug));
+  if (files.length === 0) return null;
 
+  const fileNames = new Set(files.map(f => f.name));
   const stages: Record<Stage, StageStatus | null> = {
     broad: null, shape: null, outline: null, draft: null, final: null,
   };
@@ -182,15 +168,16 @@ export function getLessonMeta(slug: string): { topic: string; date: string; audi
   let currentStage: Stage = 'broad';
 
   for (const stage of STAGES) {
-    const filePath = path.join(lessonDir, `${stage}.md`);
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, 'utf-8');
-      const { data } = matter(raw);
-      stages[stage] = (data.status as StageStatus) || 'wip';
-      topic = data.topic || topic;
-      date = data.date || date;
-      audience = data.audience || audience;
-      currentStage = stage;
+    if (fileNames.has(`${stage}.md`)) {
+      const result = await readFile(lessonPath(slug, stage));
+      if (result) {
+        const { data } = matter(result.content);
+        stages[stage] = (data.status as StageStatus) || 'wip';
+        topic = data.topic || topic;
+        date = data.date || date;
+        audience = data.audience || audience;
+        currentStage = stage;
+      }
     }
   }
 
