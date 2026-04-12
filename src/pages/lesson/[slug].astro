@@ -10,7 +10,7 @@ if (!slug) {
   return Astro.redirect('/');
 }
 
-const meta = getLessonMeta(slug);
+const meta = await getLessonMeta(slug);
 if (!meta) {
   return Astro.redirect('/');
 }
@@ -18,7 +18,7 @@ if (!meta) {
 // Load all existing stage content for the workspace
 const stageData: Record<string, { frontmatter: any; body: string } | null> = {};
 for (const stage of STAGES) {
-  stageData[stage] = getStageContent(slug, stage as Stage);
+  stageData[stage] = await getStageContent(slug, stage as Stage);
 }
 ---
 <BaseLayout title={`${meta.topic} — Prepare`}>

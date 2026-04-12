@@ -3,7 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import { getLessons } from '../lib/lessons';
 import { STAGES, STAGE_LABELS, type Stage } from '../lib/types';
 
-const lessons = getLessons();
+const lessons = await getLessons();
 
 function stageColor(status: string | null): string {
   if (status === 'complete') return 'bg-green-500';
