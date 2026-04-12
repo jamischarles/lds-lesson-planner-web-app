@@ -1,0 +1,35 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getLessonMeta, getStageContent } from '../../lib/lessons';
+import { STAGES, type Stage } from '../../lib/types';
+import LessonWorkspace from '../../components/LessonWorkspace';
+
+const { slug } = Astro.params;
+
+if (!slug) {
+  return Astro.redirect('/');
+}
+
+const meta = getLessonMeta(slug);
+if (!meta) {
+  return Astro.redirect('/');
+}
+
+// Load all existing stage content for the workspace
+const stageData: Record<string, { frontmatter: any; body: string } | null> = {};
+for (const stage of STAGES) {
+  stageData[stage] = getStageContent(slug, stage as Stage);
+}
+---
+<BaseLayout title={`${meta.topic} — Prepare`}>
+  <LessonWorkspace
+    client:load
+    slug={slug}
+    topic={meta.topic}
+    date={meta.date}
+    audience={meta.audience}
+    stages={meta.stages}
+    currentStage={meta.currentStage}
+    initialStageData={stageData}
+  />
+</BaseLayout>

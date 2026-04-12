@@ -1,17 +1,68 @@
 ---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { getLessons } from '../lib/lessons';
+import { STAGES, STAGE_LABELS, type Stage } from '../lib/types';
 
+const lessons = getLessons();
+
+function stageColor(status: string | null): string {
+  if (status === 'complete') return 'bg-green-500';
+  if (status === 'wip') return 'bg-yellow-400';
+  return 'bg-gray-300';
+}
 ---
+<BaseLayout title="Prepare — Lesson Planner">
+  <div class="min-h-[100dvh] flex flex-col">
+    <!-- Header -->
+    <header class="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-3">
+      <div class="flex items-center justify-between">
+        <h1 class="text-lg font-semibold">Prepare</h1>
+        <a
+          href="/lesson/new"
+          class="inline-flex items-center gap-1.5 bg-blue-600 text-white text-sm font-medium px-4 py-2.5 rounded-lg active:bg-blue-700 min-h-[44px]"
+        >
+          + New Lesson
+        </a>
+      </div>
+    </header>
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
-</html>
+    <!-- Lesson List -->
+    <main class="flex-1 px-4 py-4">
+      {lessons.length === 0 ? (
+        <div class="text-center py-16">
+          <p class="text-gray-500 text-base mb-2">No lessons yet</p>
+          <p class="text-gray-400 text-sm">Tap "New Lesson" to get started</p>
+        </div>
+      ) : (
+        <ul class="space-y-3">
+          {lessons.map((lesson) => (
+            <li>
+              <a
+                href={`/lesson/${lesson.slug}`}
+                class="block bg-white rounded-xl border border-gray-200 p-4 active:bg-gray-50"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0 flex-1">
+                    <p class="font-medium text-base truncate">{lesson.topic}</p>
+                    <p class="text-sm text-gray-500 mt-0.5">
+                      {lesson.date} · {lesson.audience}
+                    </p>
+                  </div>
+                </div>
+                <!-- Stage dots -->
+                <div class="flex items-center gap-2 mt-3">
+                  {STAGES.map((stage) => (
+                    <div class="flex items-center gap-1">
+                      <span class={`w-2.5 h-2.5 rounded-full ${stageColor(lesson.stages[stage])}`}></span>
+                      <span class="text-xs text-gray-400">{STAGE_LABELS[stage]}</span>
+                    </div>
+                  ))}
+                </div>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </main>
+  </div>
+</BaseLayout>
