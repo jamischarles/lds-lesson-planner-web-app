@@ -4,7 +4,9 @@ import matter from 'gray-matter';
 import { STAGES, type Stage, type StageStatus, type LessonFrontmatter, type LessonSummary, type StageFile, getNextStage } from './types';
 import { STAGE_SCAFFOLDS } from './scaffolds';
 
-const LESSONS_DIR = path.join(process.cwd(), 'lessons');
+const LESSONS_DIR = process.env.VERCEL
+  ? path.join('/tmp', 'lessons')
+  : path.join(process.cwd(), 'lessons');
 
 function ensureLessonsDir() {
   if (!fs.existsSync(LESSONS_DIR)) {
